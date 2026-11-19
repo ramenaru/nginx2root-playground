@@ -1,4 +1,4 @@
-# nginx2root
+# nginx2root-playground
 
 Audit nginx for HTTP/2 weaknesses and nginx to root privilege paths.
 
@@ -14,14 +14,15 @@ It does not exploit anything, write to nginx, or change the configuration. Each 
 - Checks nginx to root paths: root workers, writable configuration, binary, web root, includes, capabilities, and systemd.
 - Checks configuration flaws: alias traversal, dotfiles, public `stub_status`, WebDAV, dynamic `proxy_pass`, and more.
 - Includes a feature-gated CVE table with stable and mainline version matching.
+- Includes a Docker lab with a vulnerable nginx 1.24 target and a hardened current nginx target.
 - Supports offline dumps, JSON output, severity filters, and CI exit codes.
 - Needs Bash and coreutils. `openssl`, `curl`, `ss`, and `capsh` add detail when present.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/OWNER/nginx2root.git
-cd nginx2root
+git clone https://github.com/ramenaru/nginx2root-playground.git
+cd nginx2root-playground
 sudo ./nginx2root.sh
 ```
 
@@ -43,6 +44,41 @@ nginx2root --dump nginx-T.txt --nginx-version 1.31.9 --no-live
 ```
 
 Run `nginx2root --help` for all options.
+
+## Lab
+
+The repo includes a small Docker lab with two nginx targets:
+
+- `vulnerable` runs nginx 1.24 with a deliberately broken configuration.
+- `hardened` runs the current nginx with a tight configuration.
+
+Start it:
+
+```bash
+./lab/run.sh
+```
+
+Then audit both targets:
+
+```bash
+./lab/audit.sh
+```
+
+Or run one by hand:
+
+```bash
+docker compose exec vulnerable nginx2root --no-color
+docker compose exec hardened nginx2root --no-color
+```
+
+| Target | HTTP | HTTPS |
+| --- | --- | --- |
+| vulnerable | http://localhost:8080 | https://localhost:8443 |
+| hardened | http://localhost:8081 | https://localhost:8444 |
+
+The vulnerable target also exposes h2c on http://localhost:8082.
+
+The lab walkthrough and exercises are in [lab/README.md](lab/README.md).
 
 ## Exit codes
 
@@ -113,15 +149,20 @@ Without root, the tool still parses the configuration and runs most checks.
 
 The audit is read-only. Live probes connect only to `--host` and `--port`, which default to `127.0.0.1:443`. Do not run it against hosts you do not own.
 
+The lab containers are intentionally vulnerable and only for local testing. Do not expose them to the internet.
+
 ## Development
 
 ```bash
 make lint
 make test
 make integration
+make lab
+make lab-audit
+make lab-stop
 ```
 
-The fixture tests do not need root. The integration test uses Docker and a real nginx image.
+The fixture tests do not need root. The integration test uses Docker and a real nginx image. The lab builds two nginx images and audits both targets.
 
 ## License
 
