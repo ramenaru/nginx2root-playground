@@ -1,0 +1,198 @@
+.TH NGINX2ROOT 1 "November 2026" "nginx2root 1.0.0" "User Commands"
+.SH NAME
+nginx2root \- audit nginx for HTTP/2 weaknesses and nginx-to-root privilege paths
+.SH SYNOPSIS
+.B nginx2root
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B nginx2root
+is a read-only auditor for nginx installations. It reads the configuration that
+nginx actually loads, inspects local permissions and processes, and optionally
+probes the live TLS listener. It reports findings with a severity, a concrete
+fix, and a reference.
+.PP
+The audit covers six groups: environment, HTTP/2, TLS, nginx-to-root privilege
+paths, configuration flaws, and network/listener state. A built-in advisory
+table adds feature-gated CVE checks with branch-aware version matching.
+.PP
+The tool never writes to nginx, reloads it, or exploits a vulnerability. It is
+intended for a VPS, a home server, or a laptop running nginx.
+.SH OPTIONS
+.SS Config source
+.TP
+.BR \-c ", " \-\-config " \fIPATH\fR"
+Use \fIPATH\fR as the nginx configuration (passed to \fBnginx \-c\fR).
+.TP
+.BR \-T ", " \-\-dump " \fIPATH\fR"
+Read an existing \fBnginx \-T\fR dump instead of the local installation. This
+enables offline mode: file-permission and listener checks are skipped.
+.TP
+.BI \-\-nginx\-version " \fIVERSION\fR"
+Version to use for CVE matching in offline mode, for example \fB1.31.9\fR.
+.SS Checks
+.TP
+.B \-\-no\-live
+Skip TLS, ALPN, certificate, and HTTP probes.
+.TP
+.B \-\-live
+Force live probes even when \fB\-\-dump\fR is used.
+.TP
+.BR \-H ", " \-\-host " \fIHOST\fR"
+Host to probe (default \fB127.0.0.1\fR).
+.TP
+.BR \-p ", " \-\-port " \fIPORT\fR"
+TLS port to probe (default \fB443\fR).
+.TP
+.BI \-\-timeout " \fISECONDS\fR"
+Probe timeout in seconds (default \fB5\fR).
+.TP
+.BI \-\-max\-domains " \fIN\fR"
+Maximum number of \fBserver_name\fR values to probe (default \fB25\fR).
+.TP
+.B \-\-no\-sudo
+Never try \fBsudo \-n\fR.
+.TP
+.BI \-\-only " \fILIST\fR"
+Run only the listed check IDs or prefixes, comma-separated. For example
+\fBH2,TLS\fR or \fBROOT\-00\fR.
+.TP
+.BI \-\-exclude " \fILIST\fR"
+Skip the listed check IDs or prefixes, comma-separated.
+.SS Output
+.TP
+.BI \-\-format " \fIFORMAT\fR"
+Output format: \fBtext\fR (default) or \fBjson\fR.
+.TP
+.B \-\-json
+Alias for \fB\-\-format json\fR.
+.TP
+.BI \-\-min\-severity " \fILEVEL\fR"
+Only print findings at or above \fILEVEL\fR:
+\fBcritical\fR, \fBhigh\fR, \fBmedium\fR, \fBlow\fR, or \fBinfo\fR.
+This filters display only; it does not change the exit code.
+.TP
+.BI \-\-fail\-on " \fILEVEL\fR"
+Exit with status 1 when a finding at or above \fILEVEL\fR exists. Accepts the
+same levels plus \fBnone\fR. The default is \fBhigh\fR.
+.TP
+.B \-\-no\-color
+Disable ANSI colour.
+.TP
+.BR \-q ", " \-\-quiet
+Print only actionable findings.
+.TP
+.BR \-v ", " \-\-verbose
+Also show passing and skipped checks.
+.SS Other
+.TP
+.B \-\-list\-checks
+List every check and exit.
+.TP
+.B \-\-list\-cves
+List the built-in advisory table and exit.
+.TP
+.B \-\-self\-test
+Run internal unit tests and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+No findings at or above the \fB\-\-fail\-on\fR level.
+.TP
+.B 1
+At least one finding at or above the \fB\-\-fail\-on\fR level.
+.TP
+.B 2
+Usage or environment error.
+.TP
+.B 3
+The nginx configuration could not be read or parsed.
+.SH FILES
+.TP
+.I /etc/nginx/nginx.conf
+Default configuration when no \fB\-\-config\fR is given.
+.TP
+.I /usr/local/bin/nginx2root
+Default install location.
+.TP
+.I /usr/local/share/man/man1/nginx2root.1
+Manual page installed by \fBinstall.sh\fR.
+.SH EXAMPLES
+Run a full audit as root:
+.PP
+.RS 4
+.EX
+sudo nginx2root
+.EE
+.RE
+.PP
+Fail CI on medium findings and emit JSON:
+.PP
+.RS 4
+.EX
+sudo nginx2root \-\-format json \-\-fail\-on medium > audit.json
+.EE
+.RE
+.PP
+Audit only HTTP/2 and TLS:
+.PP
+.RS 4
+.EX
+sudo nginx2root \-\-only H2,TLS
+.EE
+.RE
+.PP
+Audit a dump from another host:
+.PP
+.RS 4
+.EX
+nginx2root \-\-dump nginx\-T.txt \-\-nginx\-version 1.31.9 \-\-no\-live
+.EE
+.RE
+.PP
+Probe a non-default listener:
+.PP
+.RS 4
+.EX
+sudo nginx2root \-\-host 127.0.0.1 \-\-port 8443
+.EE
+.RE
+.SH SEVERITY
+.TP
+.B critical
+A direct path to root or host compromise. Fix immediately.
+.TP
+.B high
+Serious exposure or a reliable privilege-escalation primitive.
+.TP
+.B medium
+A meaningful weakness that needs a second condition or local access.
+.TP
+.B low
+A hardening gap or defense-in-depth issue.
+.TP
+.B info
+Context, inventory, or a best-practice suggestion.
+.SH SAFETY
+The audit is read-only. Probes connect only to the host and port given by
+\fB\-\-host\fR and \fB\-\-port\fR, using \fBserver_name\fR values from the
+configuration. Do not run the tool against hosts you do not own.
+.SH NOTES
+Root is required for complete permission and process inspection. Without root,
+the tool still parses the configuration and runs most checks, and it tries
+\fBsudo \-n\fR once when available.
+.PP
+CVE checks require a known nginx version and an enabled affected feature.
+The advisory table is current as of 2026-11-20; update \fBCVE_DATA\fR in the
+script when new advisories are published.
+.SH SEE ALSO
+.BR nginx (8),
+.BR nginx \-T ,
+.BR openssl (1)
+.PP
+Project documentation: \fIdocs/checks.md\fR and \fIREADME.md\fR.
