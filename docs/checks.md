@@ -39,10 +39,10 @@ displayed output; it does not change what is checked or the exit code.
 IDs are stable. Prefixes select a whole group:
 
 ```bash
-nginx2root --only H2,TLS        # HTTP/2 and TLS checks
-nginx2root --exclude NET,CVE    # skip network probes and advisories
-nginx2root --only ROOT-00       # ROOT-001 through ROOT-009
-nginx2root --min-severity high  # print only high and critical findings
+nginx2root --only H2,TLS
+nginx2root --exclude NET,CVE
+nginx2root --only ROOT-00
+nginx2root --min-severity high
 ```
 
 ---
