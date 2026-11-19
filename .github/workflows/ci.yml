@@ -19,7 +19,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck -S warning nginx2root.sh install.sh tests/run.sh tests/integration.sh lab/run.sh lab/stop.sh lab/audit.sh lab/entrypoint.sh
+        run: shellcheck -S warning n2rpg.sh install.sh tests/run.sh tests/integration.sh lab/run.sh lab/stop.sh lab/audit.sh lab/entrypoint.sh
 
   test:
     name: fixture tests

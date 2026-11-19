@@ -6,7 +6,7 @@ all: check
 check: lint test
 
 lint:
-	shellcheck -S warning nginx2root.sh install.sh tests/run.sh tests/integration.sh lab/run.sh lab/stop.sh lab/audit.sh lab/entrypoint.sh
+	shellcheck -S warning n2rpg.sh install.sh tests/run.sh tests/integration.sh lab/run.sh lab/stop.sh lab/audit.sh lab/entrypoint.sh
 
 test:
 	bash tests/run.sh
@@ -30,10 +30,10 @@ uninstall:
 	./install.sh --uninstall
 
 demo:
-	./nginx2root.sh --dump tests/fixtures/insecure.conf --nginx-version 1.25.2 --no-live --no-color
+	./n2rpg.sh --dump tests/fixtures/insecure.conf --nginx-version 1.25.2 --no-live --no-color
 
 list:
-	./nginx2root.sh --list-checks
+	./n2rpg.sh --list-checks
 
 clean:
 	rm -f /tmp/nginx-T.txt
