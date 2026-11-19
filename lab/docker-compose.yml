@@ -1,0 +1,41 @@
+name: nginx2root-playground
+
+services:
+  vulnerable:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile
+      args:
+        BASE_IMAGE: nginx:1.24-alpine
+    environment:
+      LAB_ROLE: vulnerable
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "8082:8080"
+    volumes:
+      - ./:/lab:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  hardened:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile
+      args:
+        BASE_IMAGE: nginx:alpine
+    environment:
+      LAB_ROLE: hardened
+    ports:
+      - "8081:80"
+      - "8444:443"
+    volumes:
+      - ./:/lab:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
