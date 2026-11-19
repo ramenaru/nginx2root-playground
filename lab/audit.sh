@@ -17,8 +17,8 @@ mkdir -p lab/results
 
 for role in vulnerable hardened; do
     echo "== ${role} =="
-    "${compose[@]}" exec -T "$role" nginx2root --no-color --fail-on none
-    "${compose[@]}" exec -T "$role" nginx2root --format json --fail-on none > "lab/results/${role}.json"
+    "${compose[@]}" exec -T "$role" n2rpg --no-color --fail-on none
+    "${compose[@]}" exec -T "$role" n2rpg --format json --fail-on none > "lab/results/${role}.json"
     echo
 done
 

@@ -31,8 +31,8 @@ this runs the auditor inside both containers and writes json to `lab/results/`.
 you can also run one target by hand:
 
 ```bash
-docker compose exec vulnerable nginx2root --no-color
-docker compose exec hardened nginx2root --no-color
+docker compose exec vulnerable n2rpg --no-color
+docker compose exec hardened n2rpg --no-color
 ```
 
 ## what you should see
@@ -59,7 +59,7 @@ the hardened target should have no critical or high findings. it still reports s
 2. open `lab/vulnerable/nginx.conf` and find the line behind each finding.
 3. fix one thing in the vulnerable config. for example, set `user nginx;` and rerun the audit.
 4. change the hardened config and see what breaks.
-5. run `./nginx2root.sh --dump lab/vulnerable/nginx.conf --nginx-version 1.24.0 --no-live` to audit the file without docker.
+5. run `./n2rpg.sh --dump lab/vulnerable/nginx.conf --nginx-version 1.24.0 --no-live` to audit the file without docker.
 
 ## stop
 

@@ -8,5 +8,5 @@ RUN mkdir -p /etc/nginx/certs \
          -addext "subjectAltName=DNS:localhost" >/dev/null 2>&1 \
     && chmod 600 /etc/nginx/certs/test.key
 COPY tests/docker/nginx.conf /etc/nginx/nginx.conf
-COPY nginx2root.sh /usr/local/bin/nginx2root
-RUN chmod 755 /usr/local/bin/nginx2root
+COPY n2rpg.sh /usr/local/bin/n2rpg
+RUN chmod 755 /usr/local/bin/n2rpg

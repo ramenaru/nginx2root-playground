@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-IMAGE=${N2R_TEST_IMAGE:-nginx2root-test:local}
-NAME="nginx2root-test-$$"
+IMAGE=${N2RPG_TEST_IMAGE:-n2rpg-test:local}
+NAME="n2rpg-test-$$"
 OUT=$(mktemp)
 
 cleanup() {
@@ -26,12 +26,12 @@ for _ in $(seq 1 30); do
 done
 
 set +e
-docker exec "$NAME" nginx2root --nginx-version 1.31.9 --no-color --format json --fail-on high > "$OUT"
+docker exec "$NAME" n2rpg --nginx-version 1.31.9 --no-color --format json --fail-on high > "$OUT"
 RC=$?
 set -e
 
 if [[ $RC -ne 0 ]]; then
-    echo "integration: nginx2root exited $RC"
+    echo "integration: n2rpg exited $RC"
     cat "$OUT"
     exit 1
 fi

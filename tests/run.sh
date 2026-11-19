@@ -3,7 +3,7 @@
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-BIN="$ROOT/nginx2root.sh"
+BIN="$ROOT/n2rpg.sh"
 FIX="$ROOT/tests/fixtures"
 PASS=0
 FAIL=0
@@ -64,7 +64,7 @@ assert_not_contains() {
 # --- basic CLI -------------------------------------------------------------
 run_text --version
 assert_eq "--version exit" 0 "$RC"
-assert_contains "--version output" "nginx2root 1.0.0"
+assert_contains "--version output" "n2rpg 1.0.0"
 
 run_text --self-test
 assert_eq "--self-test exit" 0 "$RC"
@@ -99,7 +99,7 @@ assert_has "insecure alias is high" "CFG-004" "fail"
 assert_has "insecure dump skips perms" "ROOT-004" "skip"
 assert_not_has "insecure is not h2c" "H2-003"
 assert_jq "insecure summary critical" '.summary.critical >= 1'
-assert_jq "insecure json valid" '.tool == "nginx2root"'
+assert_jq "insecure json valid" '.tool == "n2rpg"'
 
 # --- secure fixture --------------------------------------------------------
 run_json --dump "$FIX/secure.conf" --nginx-version 1.31.9 --no-live --no-color --fail-on high
