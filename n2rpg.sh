@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# nginx2root - audit nginx for HTTP/2 weaknesses and nginx -> root flaws.
+# n2rpg - audit nginx for HTTP/2 weaknesses and nginx -> root flaws.
 #
 # Defensive tool. It reads configuration, inspects local permissions and
 # optionally probes the local TLS listener. It never writes to nginx and never
@@ -9,7 +9,7 @@
 set -uo pipefail
 
 VERSION="1.0.0"
-PROG="nginx2root"
+PROG="n2rpg"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -47,9 +47,9 @@ PROBE_PORT="$OPT_PORT"
 EUID_IS_ROOT=0
 [[ ${EUID:-$(id -u)} -eq 0 ]] && EUID_IS_ROOT=1
 
-N2R_TMP=""
+N2RPG_TMP=""
 cleanup() {
-    [[ -n ${N2R_TMP:-} && -d ${N2R_TMP:-} ]] && rm -rf -- "$N2R_TMP"
+    [[ -n ${N2RPG_TMP:-} && -d ${N2RPG_TMP:-} ]] && rm -rf -- "$N2RPG_TMP"
 }
 trap cleanup EXIT INT TERM
 
@@ -79,10 +79,10 @@ has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
     cat <<'EOF'
-nginx2root - audit nginx for HTTP/2 weaknesses and nginx -> root flaws
+n2rpg - audit nginx for HTTP/2 weaknesses and nginx -> root flaws
 
 Usage:
-  nginx2root [options]
+  n2rpg [options]
 
 Config source:
   -c, --config PATH       nginx config to test (passed to nginx -c)
@@ -124,10 +124,10 @@ Exit codes:
   3  could not read/parse an nginx configuration
 
 Examples:
-  sudo nginx2root
-  sudo nginx2root --fail-on medium --format json
-  nginx2root --dump nginx-T.txt --nginx-version 1.31.9 --no-live
-  sudo nginx2root --only H2,TLS --host 127.0.0.1 --port 443
+  sudo n2rpg
+  sudo n2rpg --fail-on medium --format json
+  n2rpg --dump nginx-T.txt --nginx-version 1.31.9 --no-live
+  sudo n2rpg --only H2,TLS --host 127.0.0.1 --port 443
 EOF
 }
 
@@ -466,7 +466,7 @@ acquire_config() {
     detect_version || true
 
     if [[ -n $NGINX_BIN ]]; then
-        local args=(-T) err="$N2R_TMP/nginx.err" out="" rc=0
+        local args=(-T) err="$N2RPG_TMP/nginx.err" out="" rc=0
         [[ -n $OPT_CONFIG ]] && args+=(-c "$OPT_CONFIG")
         out=$("$NGINX_BIN" "${args[@]}" 2>"$err") || rc=$?
         if (( rc != 0 )) && [[ $EUID_IS_ROOT -eq 0 && $OPT_SUDO -eq 1 ]] && has_cmd sudo; then
@@ -476,8 +476,8 @@ acquire_config() {
         fi
         NGINX_ERR=$(one_line "$(cat "$err" 2>/dev/null || true)")
         if (( rc == 0 )) && [[ -n $out ]]; then
-            printf '%s\n' "$out" > "$N2R_TMP/dump.conf"
-            DUMP_FILE="$N2R_TMP/dump.conf"
+            printf '%s\n' "$out" > "$N2RPG_TMP/dump.conf"
+            DUMP_FILE="$N2RPG_TMP/dump.conf"
             NGINX_TEST_OK=1
             MODE="live"
             CONFIG_MAIN=$(awk '/^# configuration file /{sub(/^# configuration file /,""); sub(/:$/,""); print; exit}' "$DUMP_FILE")
@@ -491,7 +491,7 @@ acquire_config() {
         else
             NGINX_TEST_OK=0
         fi
-        [[ -n $out ]] && printf '%s\n' "$out" > "$N2R_TMP/dump.conf.partial"
+        [[ -n $out ]] && printf '%s\n' "$out" > "$N2RPG_TMP/dump.conf.partial"
     fi
 
     # Fallback: read the config tree directly (works unprivileged for 0644 files).
@@ -500,9 +500,9 @@ acquire_config() {
     [[ -z $main ]] && die 3 "could not find an nginx configuration (try --config or --dump)"
     CONFIG_MAIN=$main
     NGINX_PREFIX=$(dirname -- "$main")
-    DUMP_FILE="$N2R_TMP/dump.conf"
-    if [[ -s "$N2R_TMP/dump.conf.partial" ]]; then
-        cp -- "$N2R_TMP/dump.conf.partial" "$DUMP_FILE"
+    DUMP_FILE="$N2RPG_TMP/dump.conf"
+    if [[ -s "$N2RPG_TMP/dump.conf.partial" ]]; then
+        cp -- "$N2RPG_TMP/dump.conf.partial" "$DUMP_FILE"
     else
         collect_conf "$main" > "$DUMP_FILE"
     fi
@@ -516,7 +516,7 @@ acquire_config() {
 # ---------------------------------------------------------------------------
 AWK_FILE=""
 setup_parser() {
-    AWK_FILE="$N2R_TMP/parse.awk"
+    AWK_FILE="$N2RPG_TMP/parse.awk"
     cat > "$AWK_FILE" <<'AWK_EOF'
 BEGIN {
     depth=0; sid=0; lid=0; ctxstr[0]="main"; sidat[0]=0; lidat[0]=0
@@ -1359,7 +1359,7 @@ check_privileges() {
     # ROOT-001 workers running as root
     if [[ $MODE == "offline (dump)" ]]; then
         emit ROOT-001 skip "offline dump; worker identity not available" \
-            "Run nginx2root on the target host for process checks." ""
+            "Run n2rpg on the target host for process checks." ""
     elif [[ $NGINX_RUNNING -eq 1 && -n $NGINX_WORKER_USERS ]]; then
         case " $NGINX_WORKER_USERS " in
             *" root "*)
@@ -1390,7 +1390,7 @@ check_privileges() {
 
     if [[ $MODE == "offline (dump)" ]]; then
         emit ROOT-004 skip "file permission checks skipped for an offline dump" \
-            "Run nginx2root on the target host for permission checks." ""
+            "Run n2rpg on the target host for permission checks." ""
     else
         # ROOT-004 config file permissions
         for ((i=0;i<CFG_N;i++)); do
@@ -2332,7 +2332,7 @@ print_json() {
     local i sep="" probe_json="null"
     [[ $LIVE -eq 1 ]] && probe_json="\"$(json_escape "$PROBE_HOST:$PROBE_PORT")\""
     printf '{\n'
-    printf '  "tool": "nginx2root",\n'
+    printf '  "tool": "n2rpg",\n'
     printf '  "version": "%s",\n' "$(json_escape "$VERSION")"
     printf '  "generated_at": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '  "target": {\n'
@@ -2502,7 +2502,7 @@ main() {
         exit $?
     fi
 
-    N2R_TMP=$(mktemp -d "${TMPDIR:-/tmp}/nginx2root.XXXXXX") || die 2 "could not create a temporary directory"
+    N2RPG_TMP=$(mktemp -d "${TMPDIR:-/tmp}/n2rpg.XXXXXX") || die 2 "could not create a temporary directory"
     setup_parser
     acquire_config
     LIVE=$OPT_LIVE

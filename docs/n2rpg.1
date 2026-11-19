@@ -1,11 +1,11 @@
-.TH NGINX2ROOT 1 "November 2026" "nginx2root 1.0.0" "User Commands"
+.TH N2RPG 1 "November 2026" "n2rpg 1.0.0" "User Commands"
 .SH NAME
-nginx2root \- audit nginx for HTTP/2 weaknesses and nginx-to-root privilege paths
+n2rpg, nginx2root-playground \- audit nginx for HTTP/2 weaknesses and nginx-to-root privilege paths
 .SH SYNOPSIS
-.B nginx2root
+.B n2rpg
 [\fIOPTIONS\fR]
 .SH DESCRIPTION
-.B nginx2root
+.B n2rpg
 is a read-only auditor for nginx installations. It reads the configuration that
 nginx actually loads, inspects local permissions and processes, and optionally
 probes the live TLS listener. It reports findings with a severity, a concrete
@@ -17,6 +17,8 @@ table adds feature-gated CVE checks with branch-aware version matching.
 .PP
 The tool never writes to nginx, reloads it, or exploits a vulnerability. It is
 intended for a VPS, a home server, or a laptop running nginx.
+.PP
+The \fBnginx2root-playground\fR command is installed as an alias.
 .SH OPTIONS
 .SS Config source
 .TP
@@ -117,17 +119,23 @@ The nginx configuration could not be read or parsed.
 .I /etc/nginx/nginx.conf
 Default configuration when no \fB\-\-config\fR is given.
 .TP
-.I /usr/local/bin/nginx2root
+.I /usr/local/bin/n2rpg
 Default install location.
 .TP
-.I /usr/local/share/man/man1/nginx2root.1
+.I /usr/local/bin/nginx2root-playground
+Alias installed by \fBinstall.sh\fR.
+.TP
+.I /usr/local/share/man/man1/n2rpg.1
 Manual page installed by \fBinstall.sh\fR.
+.TP
+.I /usr/local/share/man/man1/nginx2root-playground.1
+Alias manual page installed by \fBinstall.sh\fR.
 .SH EXAMPLES
 Run a full audit as root:
 .PP
 .RS 4
 .EX
-sudo nginx2root
+sudo n2rpg
 .EE
 .RE
 .PP
@@ -135,7 +143,7 @@ Fail CI on medium findings and emit JSON:
 .PP
 .RS 4
 .EX
-sudo nginx2root \-\-format json \-\-fail\-on medium > audit.json
+sudo n2rpg \-\-format json \-\-fail\-on medium > audit.json
 .EE
 .RE
 .PP
@@ -143,7 +151,7 @@ Audit only HTTP/2 and TLS:
 .PP
 .RS 4
 .EX
-sudo nginx2root \-\-only H2,TLS
+sudo n2rpg \-\-only H2,TLS
 .EE
 .RE
 .PP
@@ -151,7 +159,7 @@ Audit a dump from another host:
 .PP
 .RS 4
 .EX
-nginx2root \-\-dump nginx\-T.txt \-\-nginx\-version 1.31.9 \-\-no\-live
+n2rpg \-\-dump nginx\-T.txt \-\-nginx\-version 1.31.9 \-\-no\-live
 .EE
 .RE
 .PP
@@ -159,7 +167,7 @@ Probe a non-default listener:
 .PP
 .RS 4
 .EX
-sudo nginx2root \-\-host 127.0.0.1 \-\-port 8443
+sudo n2rpg \-\-host 127.0.0.1 \-\-port 8443
 .EE
 .RE
 .SH SEVERITY
