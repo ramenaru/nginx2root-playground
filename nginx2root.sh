@@ -1333,7 +1333,7 @@ check_tls() {
 # ---------------------------------------------------------------------------
 check_privileges() {
     local u line uid shell v i f m o dir p
-    local -A files=() dirs=()
+    local -A files=() dirs=() seen_roots=()
 
     # ROOT-002 user directive
     u=$(main_last user) || true
@@ -1357,7 +1357,10 @@ check_privileges() {
     fi
 
     # ROOT-001 workers running as root
-    if [[ $NGINX_RUNNING -eq 1 && -n $NGINX_WORKER_USERS ]]; then
+    if [[ $MODE == "offline (dump)" ]]; then
+        emit ROOT-001 skip "offline dump; worker identity not available" \
+            "Run nginx2root on the target host for process checks." ""
+    elif [[ $NGINX_RUNNING -eq 1 && -n $NGINX_WORKER_USERS ]]; then
         case " $NGINX_WORKER_USERS " in
             *" root "*)
                 emit ROOT-001 fail "nginx worker processes are running as root (${NGINX_WORKER_COUNT} worker(s))" \
@@ -1376,7 +1379,7 @@ check_privileges() {
     # ROOT-003 master_process off
     v=$(main_last master_process) || true
     if [[ $v == off ]]; then
-        if [[ $EUID_IS_ROOT -eq 1 || $NGINX_MASTER_USER == root ]]; then
+        if [[ $MODE != "offline (dump)" && ( $EUID_IS_ROOT -eq 1 || $NGINX_MASTER_USER == root ) ]]; then
             emit ROOT-003 fail "master_process is off and nginx runs as root; requests are handled by the root process" \
                 "Enable the master process and run workers as an unprivileged user." ""
         else
@@ -1493,6 +1496,8 @@ check_privileges() {
         case $p in
             /|/etc|/etc/*|/root|/root/*|/home|/home/*|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/var/lib|/var/lib/*) continue ;;
         esac
+        [[ -n ${seen_roots[$p]:-} ]] && continue
+        seen_roots[$p]=1
         if perm_has "$m" 002; then
             wroots+=" $p (world-writable)"
         elif [[ $WORKER_USER != root && $o == "$WORKER_USER" ]] && perm_has "$m" 200; then
@@ -1505,7 +1510,7 @@ check_privileges() {
     fi
 
     # ROOT-010 capabilities
-    if [[ -n $NGINX_MASTER_PID && -r /proc/$NGINX_MASTER_PID/status && $NGINX_MASTER_USER != root ]]; then
+    if [[ $MODE != "offline (dump)" && -n $NGINX_MASTER_PID && -r /proc/$NGINX_MASTER_PID/status && $NGINX_MASTER_USER != root ]]; then
         local cap decoded
         cap=$(awk '/^CapEff:/{print $2}' "/proc/$NGINX_MASTER_PID/status" 2>/dev/null)
         decoded=""
@@ -1904,7 +1909,7 @@ run_timeout() {
 probe_alpn() {
     local d=$1 out
     out=$(run_timeout openssl s_client -connect "$PROBE_HOST:$PROBE_PORT" \
-        -servername "$d" -alpn h2 </dev/null 2>&1) || true
+        -servername "$d" -alpn h2 </dev/null 2>&1 | tr -d '\000') || true
     case $out in
         *"ALPN protocol: h2"*) printf 'h2' ;;
         *"No ALPN negotiated"*) printf 'none' ;;
@@ -1916,7 +1921,7 @@ probe_alpn() {
 probe_legacy() {
     local ver=$1 d=$2 out
     out=$(run_timeout openssl s_client -connect "$PROBE_HOST:$PROBE_PORT" \
-        -servername "$d" -"$ver" -cipher 'DEFAULT@SECLEVEL=0' </dev/null 2>&1) || true
+        -servername "$d" -"$ver" -cipher 'DEFAULT@SECLEVEL=0' </dev/null 2>&1 | tr -d '\000') || true
     if grep -qE "(New, |Protocol[[:space:]]*: )${ver}([,[:space:]]|$)" <<< "$out" \
         && ! grep -q 'Cipher is (NONE)' <<< "$out"; then
         printf '1'
@@ -1951,7 +1956,7 @@ probe_server_header() {
     has_cmd curl || return 0
     hdr=$(curl -skI --max-time "$OPT_TIMEOUT" --resolve "$d:$PROBE_PORT:$PROBE_HOST" \
         "https://$d:$PROBE_PORT/" 2>/dev/null) || true
-    awk 'BEGIN{IGNORECASE=1} /^server:/{sub(/^[^:]*:[ \t]*/,""); print; exit}' <<< "$hdr"
+    awk 'BEGIN{IGNORECASE=1} /^server:/{sub(/^[^:]*:[ \t]*/,""); sub(/\r$/,""); print; exit}' <<< "$hdr"
 }
 
 prepare_live() {
