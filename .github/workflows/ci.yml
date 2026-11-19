@@ -19,7 +19,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck -S warning nginx2root.sh install.sh tests/run.sh tests/integration.sh
+        run: shellcheck -S warning nginx2root.sh install.sh tests/run.sh tests/integration.sh lab/run.sh lab/stop.sh lab/audit.sh lab/entrypoint.sh
 
   test:
     name: fixture tests
@@ -40,3 +40,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run integration test
         run: bash tests/integration.sh
+
+  lab:
+    name: lab smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start lab
+        run: bash lab/run.sh
+      - name: Audit both targets
+        run: bash lab/audit.sh
+      - name: Check results
+        run: |
+          jq -e '.summary.critical == 0 and .summary.high == 0' lab/results/hardened.json
+          jq -e '.summary.critical > 0' lab/results/vulnerable.json
