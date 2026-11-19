@@ -2,7 +2,7 @@
 
 Audit nginx for HTTP/2 weaknesses and nginx to root privilege paths.
 
-`nginx2root` is a single-file, read-only Bash auditor. It reads the configuration that nginx actually loads, checks local permissions and processes, and optionally probes the live TLS listener. It runs on a VPS, a home server, or a laptop.
+`n2rpg` is a single-file, read-only Bash auditor. The name is short for nginx2root-playground. It reads the configuration that nginx actually loads, checks local permissions and processes, and optionally probes the live TLS listener. It runs on a VPS, a home server, or a laptop.
 
 It does not exploit anything, write to nginx, or change the configuration. Each finding includes a fix and a reference.
 
@@ -23,27 +23,29 @@ It does not exploit anything, write to nginx, or change the configuration. Each 
 ```bash
 git clone https://github.com/ramenaru/nginx2root-playground.git
 cd nginx2root-playground
-sudo ./nginx2root.sh
+sudo ./n2rpg.sh
 ```
 
 Or install it:
 
 ```bash
 sudo ./install.sh
-sudo nginx2root
+sudo n2rpg
 ```
+
+The installer also adds `nginx2root-playground` as an alias.
 
 ## Examples
 
 ```bash
-sudo nginx2root
-sudo nginx2root --fail-on medium
-sudo nginx2root --format json > audit.json
-sudo nginx2root --only H2,TLS
-nginx2root --dump nginx-T.txt --nginx-version 1.31.9 --no-live
+sudo n2rpg
+sudo n2rpg --fail-on medium
+sudo n2rpg --format json > audit.json
+sudo n2rpg --only H2,TLS
+n2rpg --dump nginx-T.txt --nginx-version 1.31.9 --no-live
 ```
 
-Run `nginx2root --help` for all options.
+Run `n2rpg --help` for all options.
 
 ## Lab
 
@@ -67,8 +69,8 @@ Then audit both targets:
 Or run one by hand:
 
 ```bash
-docker compose exec vulnerable nginx2root --no-color
-docker compose exec hardened nginx2root --no-color
+docker compose exec vulnerable n2rpg --no-color
+docker compose exec hardened n2rpg --no-color
 ```
 
 | Target | HTTP | HTTPS |
@@ -109,7 +111,7 @@ See [docs/checks.md](docs/checks.md) for the full catalog.
 
 ```json
 {
-  "tool": "nginx2root",
+  "tool": "n2rpg",
   "version": "1.0.0",
   "summary": {
     "critical": 0,

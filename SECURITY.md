@@ -2,7 +2,7 @@
 
 ## Scope
 
-nginx2root is a read-only auditor. Security reports should cover:
+nginx2root-playground is a read-only auditor. Security reports should cover:
 
 - Incorrect or dangerous findings (false negatives) in the tool.
 - False positives that could cause an operator to make a harmful change.
@@ -15,7 +15,7 @@ are out of scope.
 
 ## Reporting
 
-Please do not open a public issue for a vulnerability in nginx2root itself.
+Please do not open a public issue for a vulnerability in n2rpg itself.
 Use GitHub's private vulnerability reporting for the repository, or contact the
 maintainer listed in the repository profile.
 

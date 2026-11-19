@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve nginx2root.
+Thanks for helping improve nginx2root-playground.
 
 ## Ground rules
 
@@ -26,7 +26,7 @@ All three must pass before a pull request is merged.
 ## Adding a check
 
 1. Register an ID, severity, and title in `register_all_checks` inside
-   `nginx2root.sh`.
+   `n2rpg.sh`.
 2. Implement the check in the appropriate `check_*` function.
 3. Emit with `emit ID STATUS DETAIL FIX REF`.
    - `status`: `fail`, `warn`, `info`, `pass`, or `skip`.
@@ -62,7 +62,7 @@ Add a row to `CVE_DATA`:
 
 Use the issue template and include:
 
-- `nginx2root --version`
+- `n2rpg --version`
 - nginx version
-- output of `nginx2root --format json` with secrets removed
+- output of `n2rpg --format json` with secrets removed
 - the relevant config snippet (redact domains and paths if needed)

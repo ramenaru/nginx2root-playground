@@ -8,7 +8,7 @@ assignees: ""
 
 ## Environment
 
-- nginx2root version (`nginx2root --version`):
+- n2rpg version (`n2rpg --version`):
 - nginx version (`nginx -v`):
 - OS and Bash version:
 
@@ -27,7 +27,7 @@ assignees: ""
 Command:
 
 ```bash
-nginx2root ...
+n2rpg ...
 ```
 
 ## Expected behavior

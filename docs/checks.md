@@ -1,8 +1,8 @@
 # Check catalog
 
-This page documents every check that `nginx2root` can emit. Run
-`nginx2root --list-checks` for the same list on an installed copy, or
-`nginx2root --list-cves` for the advisory table alone.
+This page documents every check that `n2rpg` can emit. Run
+`n2rpg --list-checks` for the same list on an installed copy, or
+`n2rpg --list-cves` for the advisory table alone.
 
 - **110 checks**: 78 configuration/runtime checks plus 32 built-in advisories.
 - Checks are **read-only**. Nothing is written, reloaded, or exploited.
@@ -39,10 +39,10 @@ displayed output; it does not change what is checked or the exit code.
 IDs are stable. Prefixes select a whole group:
 
 ```bash
-nginx2root --only H2,TLS
-nginx2root --exclude NET,CVE
-nginx2root --only ROOT-00
-nginx2root --min-severity high
+n2rpg --only H2,TLS
+n2rpg --exclude NET,CVE
+n2rpg --only ROOT-00
+n2rpg --min-severity high
 ```
 
 ---
@@ -242,5 +242,5 @@ Version ranges are inclusive. The **fixed** column uses the branch-aware form
 
 Advisory data is current as of **2026-11-20** and is reviewed against the
 [nginx security advisories](https://nginx.org/en/security_advisories.html).
-To add an advisory, append a row to `CVE_DATA` in `nginx2root.sh` and add a
+To add an advisory, append a row to `CVE_DATA` in `n2rpg.sh` and add a
 test in `tests/run.sh`.
