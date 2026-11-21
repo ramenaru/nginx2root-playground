@@ -10,6 +10,8 @@ This page documents every check that `n2rpg` can emit. Run
   see passes and skips, or read the `status` field in JSON output.
 - CVE checks run only when the nginx version is known *and* the affected
   feature is actually enabled in the configuration.
+- Suppressed findings are counted separately and do not affect `--fail-on`.
+  Use `--suppressions FILE` or `--write-baseline FILE`.
 
 ## Severity
 

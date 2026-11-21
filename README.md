@@ -15,7 +15,8 @@ It does not exploit anything, write to nginx, or change the configuration. Each 
 - Checks configuration flaws: alias traversal, dotfiles, public `stub_status`, WebDAV, dynamic `proxy_pass`, and more.
 - Includes a feature-gated CVE table with stable and mainline version matching.
 - Includes a Docker lab with a vulnerable nginx 1.24 target and a hardened current nginx target.
-- Supports offline dumps, JSON output, severity filters, and CI exit codes.
+- Supports offline dumps, JSON, SARIF, suppressions, severity filters, and CI exit codes.
+- Ships a JSON schema and a composite GitHub Action wrapper.
 - Needs Bash and coreutils. `openssl`, `curl`, `ss`, and `capsh` add detail when present.
 
 ## Quick start
@@ -46,6 +47,31 @@ n2rpg --dump nginx-T.txt --nginx-version 1.31.9 --no-live
 ```
 
 Run `n2rpg --help` for all options.
+
+## Suppressions and baselines
+
+Suppress accepted findings with a text file:
+
+```text
+CFG-003|/etc/nginx/conf.d/status.conf|internal only|2027-01-01
+ROOT-002|*|container root|
+```
+
+Fields are check ID, detail match, reason, and optional expiry date. `*` matches every finding for the check. Expired entries are ignored.
+
+```bash
+sudo n2rpg --suppressions n2rpg.suppressions
+sudo n2rpg --suppressions n2rpg.suppressions --show-suppressed
+```
+
+Write a baseline from the current findings:
+
+```bash
+n2rpg --dump nginx-T.txt --write-baseline n2rpg.baseline
+n2rpg --dump nginx-T.txt --suppressions n2rpg.baseline
+```
+
+The baseline file uses the same format. Suppressed findings do not affect the exit code.
 
 ## Lab
 
@@ -107,18 +133,31 @@ There are 110 checks: 78 configuration and runtime checks plus 32 CVE checks.
 
 See [docs/checks.md](docs/checks.md) for the full catalog.
 
-## JSON output
+## JSON and SARIF
+
+`--format json` emits a versioned report that matches [docs/n2rpg.schema.json](docs/n2rpg.schema.json). `--format sarif` emits SARIF 2.1.0 for code scanning.
 
 ```json
 {
   "tool": "n2rpg",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "schema_version": "1.1",
+  "generated_at": "2026-11-21T00:00:00Z",
+  "target": {
+    "config": "/etc/nginx/nginx.conf",
+    "nginx_version": "1.31.9",
+    "mode": "live",
+    "probe": "127.0.0.1:443"
+  },
   "summary": {
     "critical": 0,
     "high": 1,
     "medium": 0,
     "low": 0,
     "info": 4,
+    "passed": 2,
+    "skipped": 6,
+    "suppressed": 0,
     "findings": 5,
     "exit_code": 1
   },
@@ -127,13 +166,56 @@ See [docs/checks.md](docs/checks.md) for the full catalog.
       "id": "TLS-001",
       "severity": "high",
       "status": "fail",
-      "title": "legacy TLS protocols enabled"
+      "title": "legacy TLS protocols enabled",
+      "detail": "server[1] enables legacy TLS: TLSv1 TLSv1.1",
+      "fix": "Disable TLSv1.0/1.1 in ssl_protocols.",
+      "ref": "",
+      "suppressed": false
     }
   ]
 }
 ```
 
-The JSON output includes passing and skipped checks. Filter on `status` if you only want problems.
+The JSON output includes passing and skipped checks. Suppressed findings remain in the array with `suppressed: true`, and the summary counts exclude them. Filter on `status` if you only want problems.
+
+```bash
+sudo n2rpg --format json > audit.json
+sudo n2rpg --format sarif > n2rpg.sarif
+```
+
+## GitHub Action
+
+The repository is a composite action. Run it after checkout:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: ramenaru/nginx2root-playground@1.1.0
+  with:
+    dump: nginx-T.txt
+    nginx-version: "1.31.9"
+    no-live: "true"
+    fail-on: high
+```
+
+For SARIF and code scanning:
+
+```yaml
+- uses: actions/checkout@v4
+- id: audit
+  uses: ramenaru/nginx2root-playground@1.1.0
+  continue-on-error: true
+  with:
+    dump: nginx-T.txt
+    nginx-version: "1.31.9"
+    no-live: "true"
+    format: sarif
+    output: n2rpg.sarif
+- uses: github/codeql-action/upload-sarif@v4
+  with:
+    sarif_file: n2rpg.sarif
+- if: steps.audit.outputs.exit-code != '0'
+  run: exit 1
+```
 
 ## Requirements
 
@@ -164,8 +246,12 @@ make lab-audit
 make lab-stop
 ```
 
-The fixture tests do not need root. The integration test uses Docker and a real nginx image. The lab builds two nginx images and audits both targets.
+The fixture tests do not need root. The integration test uses Docker and a real nginx image. The lab builds two nginx images and audits both targets. CI also runs the action wrapper. CodeQL scans the action and workflows. Dependabot keeps the actions and Docker images current.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+(Ο_Ο) - nginx2root-playground by ramenaru

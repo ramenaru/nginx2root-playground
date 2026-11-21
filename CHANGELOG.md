@@ -1,5 +1,15 @@
 # changelog
 
+## 1.1.0
+
+- added suppressions and baseline files with `--suppressions`, `--baseline`, and `--write-baseline`.
+- added `--show-suppressed` and suppressed counts in text and json output.
+- added sarif 2.1.0 output with `--format sarif` and `--sarif`.
+- added a json schema at `docs/n2rpg.schema.json`.
+- added a composite github action wrapper in `action.yml`.
+- added codeql and dependabot automation.
+- added the project watermark.
+
 ## 1.0.0
 
 first release.

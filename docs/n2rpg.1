@@ -1,4 +1,4 @@
-.TH N2RPG 1 "November 2026" "n2rpg 1.0.0" "User Commands"
+.TH N2RPG 1 "November 2026" "n2rpg 1.1.0" "User Commands"
 .SH NAME
 n2rpg, nginx2root-playground \- audit nginx for HTTP/2 weaknesses and nginx-to-root privilege paths
 .SH SYNOPSIS
@@ -63,10 +63,13 @@ Skip the listed check IDs or prefixes, comma-separated.
 .SS Output
 .TP
 .BI \-\-format " \fIFORMAT\fR"
-Output format: \fBtext\fR (default) or \fBjson\fR.
+Output format: \fBtext\fR (default), \fBjson\fR, or \fBsarif\fR.
 .TP
 .B \-\-json
 Alias for \fB\-\-format json\fR.
+.TP
+.B \-\-sarif
+Alias for \fB\-\-format sarif\fR.
 .TP
 .BI \-\-min\-severity " \fILEVEL\fR"
 Only print findings at or above \fILEVEL\fR:
@@ -85,6 +88,23 @@ Print only actionable findings.
 .TP
 .BR \-v ", " \-\-verbose
 Also show passing and skipped checks.
+.SS Suppressions
+.TP
+.BI \-\-suppressions " \fIFILE\fR"
+Read suppression rules from \fIFILE\fR. Each line uses the format
+\fIID\fR|\fImatch\fR|\fIreason\fR|\fIexpires\fR. The match is a substring of
+the finding detail or title. An empty match or \fB*\fR matches every finding
+for the check. The expiry date is optional and uses ISO format.
+.TP
+.BI \-\-baseline " \fIFILE\fR"
+Alias for \fB\-\-suppressions\fR.
+.TP
+.BI \-\-write\-baseline " \fIFILE\fR"
+Write the current findings to \fIFILE\fR in suppression format and exit with
+status 0.
+.TP
+.B \-\-show\-suppressed
+Include suppressed findings in text, JSON, and SARIF output.
 .SS Other
 .TP
 .B \-\-list\-checks
@@ -147,6 +167,30 @@ sudo n2rpg \-\-format json \-\-fail\-on medium > audit.json
 .EE
 .RE
 .PP
+Emit SARIF for code scanning:
+.PP
+.RS 4
+.EX
+sudo n2rpg \-\-format sarif > n2rpg.sarif
+.EE
+.RE
+.PP
+Suppress accepted findings:
+.PP
+.RS 4
+.EX
+sudo n2rpg \-\-suppressions n2rpg.suppressions
+.EE
+.RE
+.PP
+Write a baseline from the current findings:
+.PP
+.RS 4
+.EX
+n2rpg \-\-dump nginx\-T.txt \-\-write\-baseline n2rpg.baseline
+.EE
+.RE
+.PP
 Audit only HTTP/2 and TLS:
 .PP
 .RS 4
@@ -203,4 +247,4 @@ script when new advisories are published.
 .BR nginx \-T ,
 .BR openssl (1)
 .PP
-Project documentation: \fIdocs/checks.md\fR and \fIREADME.md\fR.
+Project documentation: \fIdocs/checks.md\fR, \fIdocs/n2rpg.schema.json\fR, and \fIREADME.md\fR.
