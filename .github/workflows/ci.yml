@@ -32,6 +32,46 @@ jobs:
       - name: Run tests
         run: bash tests/run.sh
 
+  action:
+    name: action wrapper
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit secure fixture
+        id: secure
+        uses: ./
+        with:
+          dump: tests/fixtures/secure.conf
+          nginx-version: "1.31.9"
+          no-live: "true"
+          fail-on: high
+      - name: Check passing action
+        run: test "${{ steps.secure.outputs.exit-code }}" = "0"
+      - name: Audit insecure fixture
+        id: insecure
+        continue-on-error: true
+        uses: ./
+        with:
+          dump: tests/fixtures/insecure.conf
+          nginx-version: "1.25.2"
+          no-live: "true"
+          fail-on: high
+      - name: Check failing action
+        run: test "${{ steps.insecure.outputs.exit-code }}" = "1"
+      - name: Write sarif report
+        id: sarif
+        uses: ./
+        with:
+          dump: tests/fixtures/insecure.conf
+          nginx-version: "1.25.2"
+          no-live: "true"
+          fail-on: none
+          format: sarif
+          output: n2rpg.sarif
+      - name: Check sarif report
+        run: jq -e '.version == "2.1.0" and (.runs[0].results | length > 0)' n2rpg.sarif
+
   integration:
     name: real nginx integration
     runs-on: ubuntu-latest

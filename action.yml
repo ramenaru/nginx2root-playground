@@ -1,0 +1,181 @@
+name: n2rpg nginx audit
+description: Run the read-only n2rpg auditor for nginx HTTP/2, TLS, and nginx-to-root paths.
+author: ramenaru
+branding:
+  icon: shield
+  color: purple
+inputs:
+  config:
+    description: Path to the nginx configuration passed to nginx -c.
+    required: false
+    default: ""
+  dump:
+    description: Path to an existing nginx -T dump for offline mode.
+    required: false
+    default: ""
+  nginx-version:
+    description: nginx version used for offline CVE matching.
+    required: false
+    default: ""
+  host:
+    description: Host to probe.
+    required: false
+    default: "127.0.0.1"
+  port:
+    description: TLS port to probe.
+    required: false
+    default: "443"
+  timeout:
+    description: Probe timeout in seconds.
+    required: false
+    default: "5"
+  max-domains:
+    description: Maximum number of server names to probe.
+    required: false
+    default: "25"
+  only:
+    description: Comma-separated check IDs or prefixes to run.
+    required: false
+    default: ""
+  exclude:
+    description: Comma-separated check IDs or prefixes to skip.
+    required: false
+    default: ""
+  suppressions:
+    description: Path to a suppression or baseline file.
+    required: false
+    default: ""
+  show-suppressed:
+    description: Include suppressed findings in the report.
+    required: false
+    default: "false"
+  fail-on:
+    description: Exit 1 on findings at or above this level.
+    required: false
+    default: high
+  min-severity:
+    description: Minimum severity shown in text output.
+    required: false
+    default: info
+  format:
+    description: Output format, text, json, or sarif.
+    required: false
+    default: text
+  output:
+    description: Write the report to this file instead of the log.
+    required: false
+    default: ""
+  no-live:
+    description: Skip live TLS and HTTP probes.
+    required: false
+    default: "false"
+  live:
+    description: Force live probes even with a dump.
+    required: false
+    default: "false"
+  no-sudo:
+    description: Never try sudo -n.
+    required: false
+    default: "false"
+  no-color:
+    description: Disable ANSI colour.
+    required: false
+    default: "true"
+  quiet:
+    description: Print only actionable findings.
+    required: false
+    default: "false"
+  verbose:
+    description: Show passing and skipped checks in text output.
+    required: false
+    default: "false"
+  args:
+    description: Extra n2rpg arguments split on whitespace.
+    required: false
+    default: ""
+outputs:
+  exit-code:
+    description: n2rpg exit code.
+    value: ${{ steps.audit.outputs.exit-code }}
+  report:
+    description: Report path when the output input is set.
+    value: ${{ steps.audit.outputs.report }}
+runs:
+  using: composite
+  steps:
+    - id: audit
+      shell: bash
+      env:
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_DUMP: ${{ inputs.dump }}
+        INPUT_NGINX_VERSION: ${{ inputs.nginx-version }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_MAX_DOMAINS: ${{ inputs.max-domains }}
+        INPUT_ONLY: ${{ inputs.only }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_SUPPRESSIONS: ${{ inputs.suppressions }}
+        INPUT_SHOW_SUPPRESSED: ${{ inputs.show-suppressed }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_MIN_SEVERITY: ${{ inputs.min-severity }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_NO_LIVE: ${{ inputs.no-live }}
+        INPUT_LIVE: ${{ inputs.live }}
+        INPUT_NO_SUDO: ${{ inputs.no-sudo }}
+        INPUT_NO_COLOR: ${{ inputs.no-color }}
+        INPUT_QUIET: ${{ inputs.quiet }}
+        INPUT_VERBOSE: ${{ inputs.verbose }}
+        INPUT_ARGS: ${{ inputs.args }}
+      run: |
+        set -u
+        args=()
+
+        [[ -n ${INPUT_CONFIG:-} ]] && args+=(--config "$INPUT_CONFIG")
+        [[ -n ${INPUT_DUMP:-} ]] && args+=(--dump "$INPUT_DUMP")
+        [[ -n ${INPUT_NGINX_VERSION:-} ]] && args+=(--nginx-version "$INPUT_NGINX_VERSION")
+        [[ -n ${INPUT_HOST:-} ]] && args+=(--host "$INPUT_HOST")
+        [[ -n ${INPUT_PORT:-} ]] && args+=(--port "$INPUT_PORT")
+        [[ -n ${INPUT_TIMEOUT:-} ]] && args+=(--timeout "$INPUT_TIMEOUT")
+        [[ -n ${INPUT_MAX_DOMAINS:-} ]] && args+=(--max-domains "$INPUT_MAX_DOMAINS")
+        [[ -n ${INPUT_ONLY:-} ]] && args+=(--only "$INPUT_ONLY")
+        [[ -n ${INPUT_EXCLUDE:-} ]] && args+=(--exclude "$INPUT_EXCLUDE")
+        [[ -n ${INPUT_SUPPRESSIONS:-} ]] && args+=(--suppressions "$INPUT_SUPPRESSIONS")
+        [[ ${INPUT_SHOW_SUPPRESSED:-false} == "true" ]] && args+=(--show-suppressed)
+        [[ -n ${INPUT_FAIL_ON:-} ]] && args+=(--fail-on "$INPUT_FAIL_ON")
+        [[ -n ${INPUT_MIN_SEVERITY:-} ]] && args+=(--min-severity "$INPUT_MIN_SEVERITY")
+        [[ -n ${INPUT_FORMAT:-} ]] && args+=(--format "$INPUT_FORMAT")
+        [[ ${INPUT_NO_LIVE:-false} == "true" ]] && args+=(--no-live)
+        [[ ${INPUT_LIVE:-false} == "true" ]] && args+=(--live)
+        [[ ${INPUT_NO_SUDO:-false} == "true" ]] && args+=(--no-sudo)
+        [[ ${INPUT_NO_COLOR:-true} == "true" ]] && args+=(--no-color)
+        [[ ${INPUT_QUIET:-false} == "true" ]] && args+=(--quiet)
+        [[ ${INPUT_VERBOSE:-false} == "true" ]] && args+=(--verbose)
+
+        if [[ -n ${INPUT_ARGS:-} ]]; then
+          read -r -a extra <<< "$INPUT_ARGS"
+          args+=("${extra[@]}")
+        fi
+
+        out=${INPUT_OUTPUT:-}
+        rc=0
+        if [[ -n $out ]]; then
+          mkdir -p "$(dirname "$out")"
+          set +e
+          "$GITHUB_ACTION_PATH/n2rpg.sh" "${args[@]}" > "$out"
+          rc=$?
+          set -e
+          printf 'n2rpg report written to %s\n' "$out" >&2
+        else
+          set +e
+          "$GITHUB_ACTION_PATH/n2rpg.sh" "${args[@]}"
+          rc=$?
+          set -e
+        fi
+
+        {
+          printf 'exit-code=%s\n' "$rc"
+          printf 'report=%s\n' "$out"
+        } >> "$GITHUB_OUTPUT"
+        exit "$rc"
