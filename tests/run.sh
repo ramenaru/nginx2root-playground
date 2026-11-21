@@ -8,8 +8,11 @@ FIX="$ROOT/tests/fixtures"
 PASS=0
 FAIL=0
 JSON=""
+SARIF=""
 TEXT=""
 RC=0
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/n2rpg-test.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
 
 command -v jq >/dev/null 2>&1 || { echo "jq is required for tests"; exit 2; }
 
@@ -17,6 +20,7 @@ ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; }
 
 run_json() { JSON=$("$BIN" --format json "$@" 2>/dev/null); RC=$?; }
+run_sarif() { SARIF=$("$BIN" --format sarif "$@" 2>/dev/null); RC=$?; }
 run_text() { TEXT=$("$BIN" "$@" 2>/dev/null); RC=$?; }
 
 assert_eq() {
@@ -52,6 +56,10 @@ assert_jq() {
     local desc=$1 expr=$2
     if jq -e "$expr" <<< "$JSON" >/dev/null; then ok "$desc"; else bad "$desc"; fi
 }
+assert_sarif() {
+    local desc=$1 expr=$2
+    if jq -e "$expr" <<< "$SARIF" >/dev/null; then ok "$desc"; else bad "$desc"; fi
+}
 assert_contains() {
     local desc=$1 needle=$2
     if [[ $TEXT == *"$needle"* ]]; then ok "$desc"; else bad "$desc (missing '$needle')"; fi
@@ -64,7 +72,8 @@ assert_not_contains() {
 # --- basic CLI -------------------------------------------------------------
 run_text --version
 assert_eq "--version exit" 0 "$RC"
-assert_contains "--version output" "n2rpg 1.0.0"
+assert_contains "--version output" "n2rpg 1.1.0"
+assert_contains "--version watermark" "(Ο_Ο) - nginx2root-playground by ramenaru"
 
 run_text --self-test
 assert_eq "--self-test exit" 0 "$RC"
@@ -81,6 +90,12 @@ assert_contains "--list-checks CVE table" "CVE-2026-123007"
 run_text --list-cves
 assert_eq "--list-cves exit" 0 "$RC"
 assert_contains "--list-cves row" "CVE-2026-123007"
+
+if jq empty "$ROOT/docs/n2rpg.schema.json" >/dev/null 2>&1; then
+    ok "json schema is valid"
+else
+    bad "json schema is valid"
+fi
 
 run_text --definitely-not-an-option
 assert_eq "unknown option exit" 2 "$RC"
@@ -100,6 +115,9 @@ assert_has "insecure dump skips perms" "ROOT-004" "skip"
 assert_not_has "insecure is not h2c" "H2-003"
 assert_jq "insecure summary critical" '.summary.critical >= 1'
 assert_jq "insecure json valid" '.tool == "n2rpg"'
+assert_jq "insecure schema version" '.schema_version == "1.1"'
+assert_jq "insecure suppressed count" '.summary.suppressed == 0'
+assert_jq "insecure finding suppressed flags" 'all(.findings[]; (.suppressed | type) == "boolean")'
 
 # --- secure fixture --------------------------------------------------------
 run_json --dump "$FIX/secure.conf" --nginx-version 1.31.9 --no-live --no-color --fail-on high
@@ -130,6 +148,57 @@ assert_eq "edge exit" 1 "$RC"
 for id in ROOT-006 CFG-007 CFG-011 CFG-014 CFG-017 CFG-018 CFG-008 TLS-010; do
     assert_has "edge has $id" "$id"
 done
+
+# --- suppressions and baseline ---------------------------------------------
+cat > "$TMP/suppressions.txt" <<'EOF'
+CFG-003|stub_status|test suppression|
+ROOT-002|*|test suppression|
+EOF
+
+run_json --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/suppressions.txt" --fail-on high
+assert_eq "suppression exit" 1 "$RC"
+assert_jq "suppression count" '.summary.suppressed == 2'
+assert_jq "suppression flag" '[.findings[] | select(.id=="ROOT-002" and .suppressed==true)] | length == 1'
+
+run_text --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/suppressions.txt" --show-suppressed
+assert_contains "show suppressed label" "SUPP"
+
+printf 'ROOT-002|*|old suppression|2020-01-01\n' > "$TMP/expired.txt"
+run_json --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/expired.txt" --fail-on high
+assert_jq "expired suppression ignored" '.summary.suppressed == 0'
+
+run_text --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --write-baseline "$TMP/baseline.txt"
+assert_eq "write baseline exit" 0 "$RC"
+if grep -q 'ROOT-002|' "$TMP/baseline.txt"; then
+    ok "baseline has finding"
+else
+    bad "baseline has finding"
+fi
+
+run_json --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/baseline.txt" --fail-on high
+assert_eq "baseline suppresses exit" 0 "$RC"
+assert_jq "baseline suppresses all" '.summary.findings == 0 and .summary.suppressed > 0'
+
+# --- sarif -----------------------------------------------------------------
+run_sarif --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color --fail-on none
+assert_eq "sarif exit" 0 "$RC"
+assert_sarif "sarif version" '.version == "2.1.0"'
+assert_sarif "sarif driver" '.runs[0].tool.driver.name == "n2rpg"'
+assert_sarif "sarif tls result" '[.runs[0].results[] | select(.ruleId=="TLS-001" and .level=="error")] | length > 0'
+assert_sarif "sarif location" '[.runs[0].results[] | select(.ruleId=="CFG-003") | .locations[0].physicalLocation.region.startLine] | length > 0'
+
+run_sarif --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/suppressions.txt" --fail-on none
+assert_sarif "sarif hides suppressed" '[.runs[0].results[] | select(.ruleId=="ROOT-002")] | length == 0'
+
+run_sarif --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color \
+    --suppressions "$TMP/suppressions.txt" --show-suppressed --fail-on none
+assert_sarif "sarif includes suppressed" '[.runs[0].results[] | select(.ruleId=="ROOT-002" and (.suppressions | length) > 0)] | length == 1'
 
 # --- filters and thresholds ------------------------------------------------
 run_json --dump "$FIX/insecure.conf" --nginx-version 1.25.2 --no-live --no-color --only H2 --fail-on high

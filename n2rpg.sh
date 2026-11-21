@@ -8,8 +8,10 @@
 
 set -uo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
+SCHEMA_VERSION="1.1"
 PROG="n2rpg"
+WATERMARK='(Ο_Ο) - nginx2root-playground by ramenaru'
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -31,6 +33,9 @@ OPT_QUIET=0
 OPT_VERBOSE=0
 OPT_NGINX_VERSION=""
 OPT_MAX_DOMAINS=25
+OPT_SUPPRESSIONS=""
+OPT_WRITE_BASELINE=""
+OPT_SHOW_SUPPRESSED=0
 
 NGINX_BIN=""
 NGINX_VERSION=""
@@ -101,14 +106,22 @@ Checks:
       --exclude LIST      skip these IDs/prefixes (comma separated)
 
 Output:
-      --format FMT        text or json (default text)
+      --format FMT        text, json, or sarif (default text)
       --json              alias for --format json
+      --sarif             alias for --format sarif
       --min-severity LV   only print findings >= LV (default info)
       --fail-on LV        exit 1 on findings >= LV: critical|high|medium|low|info|none
                           (default high)
       --no-color          disable ANSI colour
   -q, --quiet             only print actionable findings
   -v, --verbose           show passing and skipped checks too
+
+Suppressions:
+      --suppressions FILE read suppression rules from FILE
+      --baseline FILE     alias for --suppressions FILE
+      --write-baseline FILE
+                          write current findings to FILE and exit
+      --show-suppressed   include suppressed findings in the report
 
 Other:
       --list-checks       list all checks and exit
@@ -128,6 +141,10 @@ Examples:
   sudo n2rpg --fail-on medium --format json
   n2rpg --dump nginx-T.txt --nginx-version 1.31.9 --no-live
   sudo n2rpg --only H2,TLS --host 127.0.0.1 --port 443
+  n2rpg --suppressions n2rpg.suppressions
+  n2rpg --dump nginx-T.txt --write-baseline n2rpg.baseline
+
+(Ο_Ο) - nginx2root-playground by ramenaru
 EOF
 }
 
@@ -242,7 +259,11 @@ version_vulnerable() {
 # Findings and check registry
 # ---------------------------------------------------------------------------
 declare -a F_ID=() F_SEV=() F_ST=() F_TITLE=() F_DETAIL=() F_FIX=() F_REF=()
+declare -a F_SUPP=() F_SUPP_REASON=() F_SUPP_EXPIRES=()
+declare -a S_ID=() S_MATCH=() S_REASON=() S_EXPIRES=()
 declare -A CHECK_SEV=() CHECK_TITLE=()
+SUPP_REASON=""
+SUPP_EXPIRES=""
 
 register_check() {
     CHECK_SEV[$1]=$2
@@ -267,10 +288,69 @@ id_match() {
     return 1
 }
 
+load_suppressions() {
+    [[ -z $OPT_SUPPRESSIONS ]] && return 0
+    [[ -r $OPT_SUPPRESSIONS ]] || die 2 "cannot read suppression file: $OPT_SUPPRESSIONS"
+
+    local line id match reason expires today
+    today=$(date -u +%Y-%m-%d)
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=${line%$'\r'}
+        line=${line#"${line%%[![:space:]]*}"}
+        line=${line%"${line##*[![:space:]]}"}
+        [[ -z $line || $line == \#* ]] && continue
+        IFS='|' read -r id match reason expires <<< "$line"
+        id=${id// /}
+        [[ -z $id ]] && continue
+        match=${match:-*}
+        reason=${reason:-suppressed}
+        expires=${expires// /}
+        if [[ -n $expires ]]; then
+            if [[ ! $expires =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                err "ignoring suppression with invalid expiry for $id: $expires"
+                continue
+            fi
+            if [[ $expires < $today ]]; then
+                err "ignoring expired suppression for $id (expired $expires)"
+                continue
+            fi
+        fi
+        S_ID+=("$id")
+        S_MATCH+=("$match")
+        S_REASON+=("$reason")
+        S_EXPIRES+=("$expires")
+    done < "$OPT_SUPPRESSIONS"
+}
+
+is_suppressed() {
+    local id=$1 detail=$2 i match haystack
+    haystack="$detail ${CHECK_TITLE[$id]:-}"
+    for i in "${!S_ID[@]}"; do
+        id_match "$id" "${S_ID[i]}" || continue
+        match=${S_MATCH[i]}
+        if [[ -z $match || $match == "*" || $haystack == *"$match"* ]]; then
+            SUPP_REASON=${S_REASON[i]}
+            SUPP_EXPIRES=${S_EXPIRES[i]}
+            return 0
+        fi
+    done
+    return 1
+}
+
 emit() {
     local id=$1 status=$2 detail=${3:-} fix=${4:-} ref=${5:-}
     check_enabled "$id" || return 0
     local sev=${CHECK_SEV[$id]:-info}
+    local supp=0 reason="" expires=""
+    case $status in
+        fail|warn|info)
+            if is_suppressed "$id" "$detail"; then
+                supp=1
+                reason=$SUPP_REASON
+                expires=$SUPP_EXPIRES
+            fi
+            ;;
+    esac
     F_ID+=("$id")
     F_SEV+=("$sev")
     F_ST+=("$status")
@@ -278,6 +358,9 @@ emit() {
     F_DETAIL+=("$detail")
     F_FIX+=("$fix")
     F_REF+=("$ref")
+    F_SUPP+=("$supp")
+    F_SUPP_REASON+=("$reason")
+    F_SUPP_EXPIRES+=("$expires")
 }
 
 register_all_checks() {
@@ -2234,14 +2317,18 @@ check_cves() {
 # Summary and output
 # ---------------------------------------------------------------------------
 CNT_CRIT=0; CNT_HIGH=0; CNT_MED=0; CNT_LOW=0; CNT_INFO=0
-CNT_PASS=0; CNT_SKIP=0
+CNT_PASS=0; CNT_SKIP=0; CNT_SUPP=0
 EXIT_CODE=0
 
 compute_summary() {
     local i
     CNT_CRIT=0; CNT_HIGH=0; CNT_MED=0; CNT_LOW=0; CNT_INFO=0
-    CNT_PASS=0; CNT_SKIP=0
+    CNT_PASS=0; CNT_SKIP=0; CNT_SUPP=0
     for i in "${!F_ID[@]}"; do
+        if [[ ${F_SUPP[i]:-0} -eq 1 ]]; then
+            CNT_SUPP=$((CNT_SUPP + 1))
+            continue
+        fi
         case ${F_ST[i]} in
             pass) CNT_PASS=$((CNT_PASS + 1)); continue ;;
             skip) CNT_SKIP=$((CNT_SKIP + 1)); continue ;;
@@ -2262,6 +2349,7 @@ compute_exit() {
     EXIT_CODE=0
     thr=$(sev_rank "$OPT_FAIL_ON")
     for i in "${!F_ID[@]}"; do
+        [[ ${F_SUPP[i]:-0} -eq 1 ]] && continue
         case ${F_ST[i]} in
             fail|warn|info) ;;
             *) continue ;;
@@ -2292,18 +2380,28 @@ print_text() {
                 fail|warn|info) ;;
                 *) continue ;;
             esac
+            [[ ${F_SUPP[i]:-0} -eq 1 && $OPT_SHOW_SUPPRESSED -eq 0 ]] && continue
             [[ $OPT_QUIET -eq 1 && ${F_ST[i]} == info ]] && continue
             (( $(sev_rank "$sev") < minrank )) && continue
 
-            case ${F_ST[i]} in
-                fail) label=$(sev_label "$sev"); color=$(sev_color "$sev") ;;
-                warn) label="WARN"; color=$C_YELLOW ;;
-                *)    label="INFO"; color=$C_DIM ;;
-            esac
+            if [[ ${F_SUPP[i]:-0} -eq 1 ]]; then
+                label="SUPP"; color=$C_DIM
+            else
+                case ${F_ST[i]} in
+                    fail) label=$(sev_label "$sev"); color=$(sev_color "$sev") ;;
+                    warn) label="WARN"; color=$C_YELLOW ;;
+                    *)    label="INFO"; color=$C_DIM ;;
+                esac
+            fi
             printf '%s%-6s%s %-10s %s\n' "$color" "$label" "$C_RESET" "${F_ID[i]}" "${F_TITLE[i]}"
             [[ -n ${F_DETAIL[i]} ]] && printf '       %s\n' "${F_DETAIL[i]}"
             [[ -n ${F_FIX[i]} ]] && printf '       %sfix:%s %s\n' "$C_DIM" "$C_RESET" "${F_FIX[i]}"
             [[ -n ${F_REF[i]} ]] && printf '       %sref:%s %s\n' "$C_DIM" "$C_RESET" "${F_REF[i]}"
+            if [[ ${F_SUPP[i]:-0} -eq 1 ]]; then
+                printf '       %ssuppressed:%s %s' "$C_DIM" "$C_RESET" "${F_SUPP_REASON[i]:-policy}"
+                [[ -n ${F_SUPP_EXPIRES[i]} ]] && printf ' (expires %s)' "${F_SUPP_EXPIRES[i]}"
+                printf '\n'
+            fi
         done
     done
 
@@ -2318,8 +2416,8 @@ print_text() {
     fi
 
     if [[ $OPT_QUIET -eq 0 ]]; then
-        printf '\nSummary: %d critical, %d high, %d medium, %d low, %d info | %d passed, %d skipped\n' \
-            "$CNT_CRIT" "$CNT_HIGH" "$CNT_MED" "$CNT_LOW" "$CNT_INFO" "$CNT_PASS" "$CNT_SKIP"
+        printf '\nSummary: %d critical, %d high, %d medium, %d low, %d info | %d suppressed | %d passed, %d skipped\n' \
+            "$CNT_CRIT" "$CNT_HIGH" "$CNT_MED" "$CNT_LOW" "$CNT_INFO" "$CNT_SUPP" "$CNT_PASS" "$CNT_SKIP"
         if [[ $EXIT_CODE -eq 0 ]]; then
             printf '%sResult: PASS%s (fail-on: %s)\n' "$C_GREEN" "$C_RESET" "$OPT_FAIL_ON"
         else
@@ -2334,6 +2432,7 @@ print_json() {
     printf '{\n'
     printf '  "tool": "n2rpg",\n'
     printf '  "version": "%s",\n' "$(json_escape "$VERSION")"
+    printf '  "schema_version": "%s",\n' "$(json_escape "$SCHEMA_VERSION")"
     printf '  "generated_at": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '  "target": {\n'
     printf '    "config": "%s",\n' "$(json_escape "$CONFIG_MAIN")"
@@ -2349,23 +2448,148 @@ print_json() {
     printf '    "info": %d,\n' "$CNT_INFO"
     printf '    "passed": %d,\n' "$CNT_PASS"
     printf '    "skipped": %d,\n' "$CNT_SKIP"
+    printf '    "suppressed": %d,\n' "$CNT_SUPP"
     printf '    "findings": %d,\n' "$((CNT_CRIT + CNT_HIGH + CNT_MED + CNT_LOW + CNT_INFO))"
     printf '    "exit_code": %d\n' "$EXIT_CODE"
     printf '  },\n'
     printf '  "findings": ['
+    local supp
     for i in "${!F_ID[@]}"; do
+        supp=false
+        [[ ${F_SUPP[i]:-0} -eq 1 ]] && supp=true
         printf '%s\n    {' "$sep"
-        printf '"id":"%s","severity":"%s","status":"%s","title":"%s","detail":"%s","fix":"%s","ref":"%s"}' \
+        printf '"id":"%s","severity":"%s","status":"%s","title":"%s","detail":"%s","fix":"%s","ref":"%s","suppressed":%s}' \
             "$(json_escape "${F_ID[i]}")" \
             "$(json_escape "${F_SEV[i]}")" \
             "$(json_escape "${F_ST[i]}")" \
             "$(json_escape "${F_TITLE[i]}")" \
             "$(json_escape "${F_DETAIL[i]}")" \
             "$(json_escape "${F_FIX[i]}")" \
-            "$(json_escape "${F_REF[i]}")"
+            "$(json_escape "${F_REF[i]}")" \
+            "$supp"
         sep=","
     done
     printf '\n  ]\n}\n'
+}
+
+sarif_level() {
+    case $1 in
+        critical|high) printf 'error' ;;
+        medium)        printf 'warning' ;;
+        *)             printf 'note' ;;
+    esac
+}
+
+print_sarif() {
+    local i id rid level msg path line uri first
+    local -a rule_ids=()
+    local -A rule_index=()
+
+    mapfile -t rule_ids < <(printf '%s\n' "${!CHECK_SEV[@]}" | sort)
+    for i in "${!rule_ids[@]}"; do
+        rule_index["${rule_ids[i]}"]=$i
+    done
+
+    printf '{\n'
+    printf '  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",\n'
+    printf '  "version": "2.1.0",\n'
+    printf '  "runs": [\n'
+    printf '    {\n'
+    printf '      "tool": {\n'
+    printf '        "driver": {\n'
+    printf '          "name": "n2rpg",\n'
+    printf '          "informationUri": "https://github.com/ramenaru/nginx2root-playground",\n'
+    printf '          "version": "%s",\n' "$(json_escape "$VERSION")"
+    printf '          "rules": ['
+    first=1
+    for id in "${rule_ids[@]}"; do
+        [[ $first -eq 1 ]] || printf ','
+        first=0
+        printf '\n            {\n'
+        printf '              "id": "%s",\n' "$(json_escape "$id")"
+        printf '              "name": "%s",\n' "${id//-/_}"
+        printf '              "shortDescription": {"text": "%s"},\n' "$(json_escape "${CHECK_TITLE[$id]}")"
+        printf '              "defaultConfiguration": {"level": "%s"},\n' "$(sarif_level "${CHECK_SEV[$id]}")"
+        printf '              "helpUri": "https://github.com/ramenaru/nginx2root-playground/blob/main/docs/checks.md"\n'
+        printf '            }'
+    done
+    printf '\n          ]\n'
+    printf '        }\n'
+    printf '      },\n'
+    printf '      "invocations": [\n'
+    printf '        {\n'
+    printf '          "executionSuccessful": true,\n'
+    printf '          "exitCode": %d\n' "$EXIT_CODE"
+    printf '        }\n'
+    printf '      ],\n'
+    printf '      "results": ['
+    first=1
+    for i in "${!F_ID[@]}"; do
+        case ${F_ST[i]} in
+            fail|warn|info) ;;
+            *) continue ;;
+        esac
+        [[ ${F_SUPP[i]:-0} -eq 1 && $OPT_SHOW_SUPPRESSED -eq 0 ]] && continue
+        rid=${F_ID[i]}
+        level=$(sarif_level "${F_SEV[i]}")
+        msg=${F_TITLE[i]}
+        [[ -n ${F_DETAIL[i]} ]] && msg+=": ${F_DETAIL[i]}"
+        [[ $first -eq 1 ]] || printf ','
+        first=0
+        printf '\n        {\n'
+        printf '          "ruleId": "%s",\n' "$(json_escape "$rid")"
+        printf '          "ruleIndex": %d,\n' "${rule_index[$rid]:-0}"
+        printf '          "level": "%s",\n' "$level"
+        printf '          "message": {"text": "%s"},\n' "$(json_escape "$msg")"
+        printf '          "properties": {"severity": "%s", "status": "%s"}' \
+            "$(json_escape "${F_SEV[i]}")" "$(json_escape "${F_ST[i]}")"
+        path=""
+        line=""
+        if [[ ${F_DETAIL[i]} =~ \(([^()]+):([0-9]+)\)$ ]]; then
+            path=${BASH_REMATCH[1]}
+            line=${BASH_REMATCH[2]}
+        fi
+        if [[ -n $path ]]; then
+            uri=$path
+            [[ $uri == /* ]] && uri="file://$uri"
+            uri=${uri// /%20}
+            printf ',\n          "locations": [\n            {\n              "physicalLocation": {\n                "artifactLocation": {"uri": "%s"},\n                "region": {"startLine": %s}\n              }\n            }\n          ]' \
+                "$(json_escape "$uri")" "$line"
+        fi
+        if [[ ${F_SUPP[i]:-0} -eq 1 ]]; then
+            printf ',\n          "suppressions": [\n            {"kind": "external", "justification": "%s"}\n          ]' \
+                "$(json_escape "${F_SUPP_REASON[i]:-suppressed by policy}")"
+        fi
+        printf '\n        }'
+    done
+    printf '\n      ]\n'
+    printf '    }\n'
+    printf '  ]\n'
+    printf '}\n'
+}
+
+write_baseline() {
+    local file=$1 i count=0 detail
+    if ! : > "$file"; then
+        die 2 "cannot write baseline: $file"
+    fi
+    {
+        printf '# n2rpg baseline generated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '# id|match|reason|expires\n'
+        for i in "${!F_ID[@]}"; do
+            [[ ${F_SUPP[i]:-0} -eq 1 ]] && continue
+            case ${F_ST[i]} in
+                fail|warn|info) ;;
+                *) continue ;;
+            esac
+            detail=${F_DETAIL[i]//|//}
+            detail=${detail//$'\n'/ }
+            [[ -z $detail ]] && detail='*'
+            printf '%s|%s|baseline|\n' "${F_ID[i]}" "$detail"
+            count=$((count + 1))
+        done
+    } >> "$file" || die 2 "cannot write baseline: $file"
+    err "baseline written to $file ($count findings)"
 }
 
 # ---------------------------------------------------------------------------
@@ -2410,6 +2634,9 @@ self_test() {
     st_eq "size 1m" "1048576" "$(parse_size_bytes 1m)"
     st_eq "clean cipher list" "" "$(weak_ciphers 'HIGH:!aNULL:!MD5')"
     st_eq "weak cipher list" " RC4-SHA" "$(weak_ciphers 'RC4-SHA')"
+    st_eq "sarif critical level" "error" "$(sarif_level critical)"
+    st_eq "sarif medium level" "warning" "$(sarif_level medium)"
+    st_eq "sarif low level" "note" "$(sarif_level low)"
 
     if (( failures > 0 )); then
         printf '\n%d self-test(s) failed\n' "$failures"
@@ -2442,6 +2669,11 @@ parse_args() {
             --min-severity) [[ $# -ge 2 ]] || die 2 "$1 requires a value"; OPT_MIN_SEV=$2; shift 2 ;;
             --format)    [[ $# -ge 2 ]] || die 2 "$1 requires a value"; OPT_FORMAT=$2; shift 2 ;;
             --json)      OPT_FORMAT=json; shift ;;
+            --sarif)     OPT_FORMAT=sarif; shift ;;
+            --suppressions) [[ $# -ge 2 ]] || die 2 "$1 requires a value"; OPT_SUPPRESSIONS=$2; shift 2 ;;
+            --baseline)  [[ $# -ge 2 ]] || die 2 "$1 requires a value"; OPT_SUPPRESSIONS=$2; shift 2 ;;
+            --write-baseline) [[ $# -ge 2 ]] || die 2 "$1 requires a value"; OPT_WRITE_BASELINE=$2; shift 2 ;;
+            --show-suppressed) OPT_SHOW_SUPPRESSED=1; shift ;;
             --no-color)  OPT_NO_COLOR=1; shift ;;
             --no-live)   OPT_LIVE=0; shift ;;
             --live)      OPT_LIVE=1; shift ;;
@@ -2451,7 +2683,7 @@ parse_args() {
             --list-checks) SHOW_CHECKS=1; shift ;;
             --list-cves) SHOW_CVES=1; shift ;;
             --self-test) RUN_SELFTEST=1; shift ;;
-            -V|--version) printf '%s %s\n' "$PROG" "$VERSION"; exit 0 ;;
+            -V|--version) printf '%s %s\n%s\n' "$PROG" "$VERSION" "$WATERMARK"; exit 0 ;;
             -h|--help) usage; exit 0 ;;
             --) shift; break ;;
             -*) die 2 "unknown option: $1 (try --help)" ;;
@@ -2459,7 +2691,7 @@ parse_args() {
         esac
     done
 
-    case $OPT_FORMAT in text|json) ;; *) die 2 "--format must be text or json" ;; esac
+    case $OPT_FORMAT in text|json|sarif) ;; *) die 2 "--format must be text, json, or sarif" ;; esac
     case $OPT_FAIL_ON in critical|high|medium|low|info|none) ;; *) die 2 "--fail-on must be critical|high|medium|low|info|none" ;; esac
     case $OPT_MIN_SEV in critical|high|medium|low|info) ;; *) die 2 "--min-severity must be critical|high|medium|low|info" ;; esac
     if [[ -n $OPT_NGINX_VERSION && ! $OPT_NGINX_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -2502,6 +2734,8 @@ main() {
         exit $?
     fi
 
+    load_suppressions
+
     N2RPG_TMP=$(mktemp -d "${TMPDIR:-/tmp}/n2rpg.XXXXXX") || die 2 "could not create a temporary directory"
     setup_parser
     acquire_config
@@ -2531,8 +2765,15 @@ main() {
     compute_summary
     compute_exit
 
+    if [[ -n $OPT_WRITE_BASELINE ]]; then
+        write_baseline "$OPT_WRITE_BASELINE"
+        exit 0
+    fi
+
     if [[ $OPT_FORMAT == json ]]; then
         print_json
+    elif [[ $OPT_FORMAT == sarif ]]; then
+        print_sarif
     else
         print_text
     fi

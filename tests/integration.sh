@@ -36,7 +36,8 @@ if [[ $RC -ne 0 ]]; then
     exit 1
 fi
 
-jq -e '.target.mode == "live"' "$OUT" >/dev/null || { echo "expected live mode"; cat "$OUT"; exit 1; }
+jq -e '.target.mode == "live" and .schema_version == "1.1" and .summary.suppressed == 0' "$OUT" >/dev/null \
+    || { echo "expected live mode and current schema"; cat "$OUT"; exit 1; }
 jq -e '[.findings[] | select(.id=="H2-008" and .status=="pass")] | length >= 1' "$OUT" >/dev/null \
     || { echo "expected ALPN h2 pass"; cat "$OUT"; exit 1; }
 jq -e '[.findings[] | select(.id=="ROOT-001" and .status=="pass")] | length >= 1' "$OUT" >/dev/null \
